@@ -283,6 +283,43 @@ where
   }
 }
 
+impl<T, const N: usize> FromNapiValue for [T; N]
+where
+  T: FromNapiValue,
+{
+  unsafe fn from_napi_value(env: sys::napi_env, napi_val: sys::napi_value) -> Result<Self> {
+    let arr = unsafe { Array::from_napi_value(env, napi_val)? };
+    let mut vec = vec![];
+
+    if (arr.len() as usize) != N {
+      return Err(Error::new(
+        Status::InvalidArg,
+        "Array has invalid length when converting to Rust [T; N]".to_owned(),
+      ));
+    }
+
+    for i in 0..arr.len() {
+      if let Some(val) = arr.get::<T>(i)? {
+        vec.push(val);
+      } else {
+        return Err(Error::new(
+          Status::InvalidArg,
+          "Found inconsistent data type in Array<T> when converting to Rust [T; N]".to_owned(),
+        ));
+      }
+    }
+
+    if let Ok(arr) = vec.try_into() {
+      Ok(arr)
+    } else {
+      Err(Error::new(
+        Status::InvalidArg,
+        "Failed to convert Vec<T> to [T; N]".to_owned(),
+      ))
+    }
+  }
+}
+
 impl<T> ValidateNapiValue for Vec<T>
 where
   T: FromNapiValue,

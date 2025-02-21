@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasher, Hash};
+use std::str::FromStr;
 
 #[cfg(feature = "object_indexmap")]
 use indexmap::IndexMap;
@@ -20,14 +21,14 @@ impl<K: From<String> + Eq + Hash, V: FromNapiValue> ValidateNapiValue for HashMa
 
 impl<K, V, S> ToNapiValue for HashMap<K, V, S>
 where
-  K: AsRef<str>,
+  K: ToString,
   V: ToNapiValue,
 {
   unsafe fn to_napi_value(raw_env: sys::napi_env, val: Self) -> Result<sys::napi_value> {
     let env = Env::from(raw_env);
     let mut obj = env.create_object()?;
     for (k, v) in val.into_iter() {
-      obj.set(k.as_ref(), v)?;
+      obj.set(k.to_string(), v)?;
     }
 
     unsafe { Object::to_napi_value(raw_env, obj) }
@@ -36,7 +37,7 @@ where
 
 impl<K, V, S> FromNapiValue for HashMap<K, V, S>
 where
-  K: From<String> + Eq + Hash,
+  K: FromStr + Eq + Hash + TypeName,
   V: FromNapiValue,
   S: Default + BuildHasher,
 {
@@ -45,7 +46,17 @@ where
     let mut map = HashMap::default();
     for key in Object::keys(&obj)?.into_iter() {
       if let Some(val) = obj.get(&key)? {
-        map.insert(K::from(key), val);
+        let parsed_key = key.parse().map_err(|_err| {
+          Error::new(
+            Status::GenericFailure,
+            format!(
+              "Failed to convert napi value `{}` into rust type {}",
+              key,
+              K::type_name()
+            ),
+          )
+        })?;
+        map.insert(parsed_key, val);
       }
     }
 
